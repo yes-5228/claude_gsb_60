@@ -1,6 +1,6 @@
 import DataTable from '../../../components/common/DataTable.jsx'
 import Tag from '../../../components/common/Tag.jsx'
-import { DATA_SOURCE_TONE, EXCEEDANCE_STATUS_TONE } from '../../../constants/index.js'
+import { DATA_SOURCE_TONE, EXCEEDANCE_LEVEL_LABELS, EXCEEDANCE_LEVEL_TONE, EXCEEDANCE_STATUS_TONE } from '../../../constants/index.js'
 import { formatDateTime, formatNumber } from '../../../utils/format.js'
 
 export default function QueryResultTable({ rows, loading }) {
@@ -25,6 +25,21 @@ export default function QueryResultTable({ rows, loading }) {
       key: 'is_exceeded',
       title: '超标',
       render: (row) => (row.is_exceeded ? <Tag tone="danger">是</Tag> : <Tag tone="success">否</Tag>)
+    },
+    {
+      key: 'exceedance_level',
+      title: '超标等级(生效)',
+      render: (row) =>
+        row.exceedance_level ? (
+          <span className="inline" style={{ gap: 4 }}>
+            <Tag tone={EXCEEDANCE_LEVEL_TONE[row.exceedance_level]}>
+              {EXCEEDANCE_LEVEL_LABELS[row.exceedance_level] || row.exceedance_level}
+            </Tag>
+            {row.exceedance_level_corrected ? <span className="small primary-text">已修正</span> : null}
+          </span>
+        ) : (
+          <span className="muted">-</span>
+        )
     },
     {
       key: 'exceedance_status',

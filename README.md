@@ -11,7 +11,8 @@
 | 运行概览 | `/overview` | 监测点规模、数据总量、超标与待标注统计、近 7 日数据量趋势、待办超标列表 |
 | 监测点台账 | `/stations` | 台账增删改查、区域/类型/状态筛选、点位详情与分因子统计、级联清理关联数据 |
 | 监测数据录入 | `/measurements` | 按“监测点 + 时刻 + 周期”成组录入多因子浓度、超标校验预览、重复数据覆盖、录入结果回执 |
-| 超标记录标注 | `/exceedances` | 超标自动建单、单条/批量标注(确认 / 忽略 / 重置)、等级人工修正、标注留痕与统计 |
+| 超标记录标注 | `/exceedances` | 超标自动建单、单条/批量标注(确认 / 忽略 / 重置)、标注留痕与统计 |
+| 等级修正留痕 | `/corrections` | 超标等级人工修正(必填理由、前后对比、反复修正可追溯)、批量原子修正、已公布月份冻结、按操作人/时间检索与导出 |
 | 数据查询 | `/query` | 多条件组合检索、聚合统计(按因子/站点/区域/日/月等)、分页浏览、CSV 导出 |
 
 设计要点:
@@ -28,7 +29,7 @@
 | 数据库 | SQLite(默认, 零依赖) / PostgreSQL 16(可选, compose 覆盖文件) |
 | 前端 | React 18 · React Router 6 · Vite 7 · Axios · 原生 CSS(设计令牌 + 组件类) |
 | 部署 | Docker 多阶段构建 · Nginx 静态托管与 `/api` 反向代理 · docker compose |
-| 测试 | Pytest(43 个后端用例: 接口 + 领域规则) |
+| 测试 | Pytest(55 个后端用例: 接口 + 领域规则 + 等级修正留痕/批量原子性/跨月冻结) |
 
 ## 目录结构
 
@@ -141,6 +142,15 @@ docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --buil
 - **无 1 小时限值的因子**(PM2.5、PM10 小时值)仅记录数值, 不参与超标判定, 避免误报。
 - **标注状态**: `待标注(pending)` 由系统自动创建, 人工标注为 `已确认(confirmed)` 或 `已忽略(ignored)`; 确认与忽略都必须填写标注说明, 用于后续追溯。
 
+### 超标等级人工修正
+
+- **独立于标注**: 确认/忽略只改标注状态; 等级修正走单独接口, 必须填写**修正理由与操作人**。
+- **统一生效**: 修正后有效等级保存在 `exceedances.level`, 列表、详情、看板统计、各模块导出统一使用新等级; 系统自动判定值保留在 `original_level`, 监测数据被覆盖重判时只刷新原始等级, 不会冲掉人工修正。
+- **全程留痕**: 每次修正在 `level_corrections` 追加一条不可变记录(前/后等级、理由、操作人、批次号、时间), 同一条记录被反复修正也能在详情与留痕页串出完整变化链。
+- **批量原子性**: 批量修正按同一套校验整体成立后才提交; 任一条不满足(不存在 / 目标等级未变 / **所属月份已对外公布** / 理由缺失), 整批拒绝、一条都不改, 同批共享一个批次号。
+- **跨月冻结**: `monthly_publications` 记录已对外公布的月份; 月份公布后其内超标记录禁止再修正, 保证跨月发生的修正不改变已公布结果(修正动作发生在何时只影响留痕时间, 公布月始终以公布时结果为准)。
+- **留痕检索**: 修正记录可按操作人、修正时间区间、数据所属月份、修正后等级、因子、批次号、超标记录 ID 检索, 并可导出审计 CSV。
+
 ## API 概览
 
 统一前缀 `/api`, 成功直接返回数据对象; 失败返回 `{"error": {"code": "...", "message": "...", "fields": {...}}}`。
@@ -162,7 +172,12 @@ docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --buil
 | GET | `/api/measurements/export` | 按条件导出 CSV |
 | GET | `/api/exceedances` | 超标记录查询(含筛选统计) |
 | GET | `/api/exceedances/{id}` | 超标记录详情(含关联监测数据) |
-| PATCH | `/api/exceedances/{id}` | 单条标注 |
+| PATCH | `/api/exceedances/{id}` | 单条标注(确认 / 忽略 / 重置) |
+| POST | `/api/exceedances/{id}/corrections` | **单条等级人工修正**(必填新等级/理由/操作人) |
+| POST | `/api/exceedances/corrections/batch` | **批量等级修正**(整体校验, 全成或全不成) |
+| GET | `/api/exceedances/corrections` | 修正留痕查询(操作人/时间区间/月份/批次等) |
+| GET | `/api/exceedances/corrections/export` | 修正留痕导出 CSV |
+| GET/POST | `/api/exceedances/publications` | 已公布月份清单 / 标记月份已公布(冻结修正) |
 | POST | `/api/exceedances/annotations` | 批量标注 |
 | GET | `/api/exceedances/summary` | 超标统计(状态/等级/高发因子/站点排名) |
 | GET | `/api/query/measurements` | 高级条件检索 |
@@ -200,13 +215,31 @@ docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --buil
 }
 ```
 
+`POST /api/exceedances/{id}/corrections` 等级人工修正请求示例:
+
+```json
+{ "level": "severe", "reason": "现场复核周边排放源持续超排, 上调等级", "operator": "王敏" }
+```
+
+批量修正 `POST /api/exceedances/corrections/batch` 支持公共理由或逐条理由, 整批同生共死:
+
+```json
+{
+  "operator": "王敏",
+  "reason": "月度复核统一调整",
+  "items": [ { "id": 12, "level": "severe" }, { "id": 15, "level": "light" } ]
+}
+```
+
 ## 数据模型
 
 | 表 | 关键字段 | 说明 |
 | --- | --- | --- |
 | `stations` | `code`(唯一) `name` `area` `station_type` `status` `longitude/latitude` `installed_at` | 监测点台账 |
 | `measurements` | `station_id` `pollutant` `period` `value` `limit_value` `exceed_ratio` `is_exceeded` `measured_at` `data_source` `recorder` | 监测数据; `(station_id, pollutant, period, measured_at)` 唯一 |
-| `exceedances` | `measurement_id`(唯一) `status` `level` `note` `annotator` `annotated_at` | 超标记录与人工标注 |
+| `exceedances` | `measurement_id`(唯一) `status` `level`(生效等级) `original_level`(系统判定) `level_corrected` `note` `annotator` `annotated_at` | 超标记录与人工标注 |
+| `level_corrections` | `exceedance_id` `level_before` `level_after` `reason` `operator` `batch_no` `period_month` `corrected_at` | 等级修正留痕(append-only), 同一记录可多条 |
+| `monthly_publications` | `period_month`(唯一) `published_by` `published_at` `remark` | 已对外公布月份, 公布后禁止修正该月等级 |
 
 删除监测点会级联清理其监测数据与超标记录; 删除监测数据会同时删除对应超标记录。
 
@@ -228,7 +261,7 @@ docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --buil
 
 ```bash
 cd backend
-python -m pytest -q          # 43 个用例: 台账 CRUD/级联、录入与超标判定、标注规则、查询统计与导出、元数据接口
+python -m pytest -q          # 55 个用例: 台账 CRUD/级联、录入与超标判定、标注规则、等级修正留痕/批量原子性/跨月冻结、查询统计与导出、元数据接口
 
 cd frontend
 npm run build                # 生产构建校验

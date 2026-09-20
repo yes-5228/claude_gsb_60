@@ -7,6 +7,7 @@ import Tag from '../../components/common/Tag.jsx'
 import { useToast } from '../../components/common/ToastProvider.jsx'
 import { useListQuery } from '../../hooks/useListQuery.js'
 import AnnotationModal from './components/AnnotationModal.jsx'
+import BatchCorrectionModal from './components/BatchCorrectionModal.jsx'
 import ExceedanceFilters from './components/ExceedanceFilters.jsx'
 import ExceedanceSummaryCards from './components/ExceedanceSummaryCards.jsx'
 import ExceedanceTable from './components/ExceedanceTable.jsx'
@@ -14,6 +15,7 @@ import ExceedanceTable from './components/ExceedanceTable.jsx'
 const INITIAL_FILTERS = {
   status: '',
   level: '',
+  level_corrected: '',
   pollutant: '',
   station_id: '',
   date_from: '',
@@ -26,6 +28,7 @@ export default function ExceedancesPage() {
   const query = useListQuery(listExceedances, INITIAL_FILTERS)
   const [selected, setSelected] = useState([])
   const [activeId, setActiveId] = useState(null)
+  const [batchCorrectOpen, setBatchCorrectOpen] = useState(false)
   const [batch, setBatch] = useState({ status: 'confirmed', note: '', annotator: '' })
   const [busy, setBusy] = useState(false)
 
@@ -88,7 +91,7 @@ export default function ExceedancesPage() {
 
       <SectionCard
         title="超标记录工作台"
-        hint="点击行可打开单条标注; 勾选多条后可批量确认或忽略"
+        hint="点击行可打开标注与等级修正; 勾选多条后可批量标注或批量修正等级"
         actions={
           <>
             <Tag tone="primary">已选 {selected.length} 条</Tag>
@@ -130,6 +133,20 @@ export default function ExceedancesPage() {
                 <button type="button" className="btn btn-primary" onClick={submitBatch} disabled={busy}>
                   {busy ? '提交中...' : '提交批量标注'}
                 </button>
+                <span className="divider" />
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    if (selected.length === 0) {
+                      toast.warning('请先勾选需要修正等级的超标记录')
+                      return
+                    }
+                    setBatchCorrectOpen(true)
+                  }}
+                >
+                  批量修正等级
+                </button>
                 <button
                   type="button"
                   className="btn"
@@ -149,6 +166,7 @@ export default function ExceedancesPage() {
             onToggleRow={toggleRow}
             onToggleAll={toggleAll}
             onOpen={(row) => setActiveId(row.id)}
+            onCorrect={(row) => setActiveId(row.id)}
           />
           <Pagination
             page={query.page}
@@ -166,6 +184,18 @@ export default function ExceedancesPage() {
         onClose={() => setActiveId(null)}
         onSaved={() => {
           setActiveId(null)
+          reload()
+        }}
+      />
+
+      <BatchCorrectionModal
+        open={batchCorrectOpen}
+        rows={query.items}
+        selectedIds={selected}
+        onClose={() => setBatchCorrectOpen(false)}
+        onDone={() => {
+          setBatchCorrectOpen(false)
+          setSelected([])
           reload()
         }}
       />

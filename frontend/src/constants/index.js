@@ -3,6 +3,7 @@ export const NAV_ITEMS = [
   { to: '/stations', label: '监测点台账', icon: '📍', title: '监测点台账', subtitle: '维护监测点档案、点位信息与运行状态' },
   { to: '/measurements', label: '监测数据录入', icon: '✍️', title: '监测数据录入', subtitle: '按“监测点 + 时刻”成组录入各因子浓度' },
   { to: '/exceedances', label: '超标记录标注', icon: '⚠️', title: '超标记录标注', subtitle: '复核超标记录, 标注确认或忽略原因' },
+  { to: '/corrections', label: '等级修正留痕', icon: '🧾', title: '等级修正留痕', subtitle: '超标等级人工修正的前后对比、理由、批次与操作人追溯' },
   { to: '/query', label: '数据查询', icon: '🔍', title: '数据查询', subtitle: '多条件检索、聚合统计与结果导出' }
 ]
 

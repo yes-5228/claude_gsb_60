@@ -170,14 +170,18 @@ def _sync_exceedance(record, meta, evaluation):
                 limit_value=evaluation["limit"],
                 exceed_ratio=evaluation["ratio"],
                 level=evaluation["level"],
+                original_level=evaluation["level"],
                 status="pending",
             )
         else:
             record.exceedance.value = record.value
             record.exceedance.limit_value = evaluation["limit"]
             record.exceedance.exceed_ratio = evaluation["ratio"]
-            record.exceedance.level = evaluation["level"]
             record.exceedance.measured_at = record.measured_at
+            # 系统重新判定只刷新原始等级快照; 已被人工修正的有效等级必须保留。
+            record.exceedance.original_level = evaluation["level"]
+            if not record.exceedance.level_corrected:
+                record.exceedance.level = evaluation["level"]
     elif record.exceedance is not None:
         db.session.delete(record.exceedance)
 

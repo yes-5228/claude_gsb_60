@@ -1,5 +1,5 @@
 """超标记录查询与人工标注."""
-from datetime import datetime
+from datetime import datetime, time
 
 from sqlalchemy import cast, func, or_
 
@@ -8,9 +8,24 @@ from ..errors import NotFoundError, ValidationError
 from ..extensions import db
 from ..models import Exceedance, Measurement, Station
 from ..models.base import iso
+from .correction_service import month_range
 
 STATUS_CHOICES = tuple(EXCEEDANCE_STATUS_LABELS.keys())
 LEVEL_CHOICES = tuple(EXCEEDANCE_LEVEL_LABELS.keys())
+
+
+def _month_ranges(months):
+    ranges = []
+    for value in months:
+        parsed = month_range(value)
+        if parsed is None:
+            raise ValidationError(
+                "period_month 格式应为 YYYY-MM: %s" % value,
+                fields={"period_month": "invalid_month"},
+            )
+        ranges.append((datetime.combine(parsed[0], time.min),
+                       datetime.combine(parsed[1], time.max)))
+    return ranges
 
 
 def _split(value):
@@ -89,6 +104,22 @@ def exceedance_query(args):
     elif str(args.get("annotated", "")).strip().lower() in {"0", "false", "no"}:
         query = query.filter(Exceedance.annotated_at.is_(None))
 
+    corrected = str(args.get("level_corrected", "")).strip().lower()
+    if corrected in {"1", "true", "yes"}:
+        query = query.filter(Exceedance.level_corrected.is_(True))
+    elif corrected in {"0", "false", "no"}:
+        query = query.filter(Exceedance.level_corrected.is_(False))
+
+    months = _split(args.get("period_month"))
+    month_ranges = _month_ranges(months)
+    if month_ranges:
+        query = query.filter(
+            or_(*[
+                (Exceedance.measured_at >= start) & (Exceedance.measured_at <= end)
+                for start, end in month_ranges
+            ])
+        )
+
     order = (args.get("order") or "desc").lower()
     sort_key = args.get("sort") or "measured_at"
     column = {
@@ -101,8 +132,11 @@ def exceedance_query(args):
     return query.order_by(primary, Exceedance.id.desc())
 
 
-def annotate(exceedance, status=None, note=None, annotator=None, level=None):
-    """Apply a manual annotation to an exceedance record."""
+def annotate(exceedance, status=None, note=None, annotator=None):
+    """Apply a manual annotation (确认 / 忽略 / 重置) to an exceedance record.
+
+    超标等级的人工修正不在此处处理, 统一走 ``correction_service`` 的留痕链路。
+    """
     if status is not None:
         if status not in STATUS_CHOICES:
             raise ValidationError(
@@ -110,13 +144,6 @@ def annotate(exceedance, status=None, note=None, annotator=None, level=None):
                 fields={"status": "unknown"},
             )
         exceedance.status = status
-    if level is not None:
-        if level not in LEVEL_CHOICES:
-            raise ValidationError(
-                "超标等级取值不合法, 可选: %s" % ", ".join(LEVEL_CHOICES),
-                fields={"level": "unknown"},
-            )
-        exceedance.level = level
 
     note = (note or "").strip()
     if exceedance.status == "pending":
@@ -138,7 +165,7 @@ def annotate(exceedance, status=None, note=None, annotator=None, level=None):
     return exceedance
 
 
-def annotate_batch(ids, status, note=None, annotator=None, level=None):
+def annotate_batch(ids, status, note=None, annotator=None):
     """Batch annotation used by the exceedance work bench."""
     ids = list(dict.fromkeys(int(item) for item in ids))
     if not ids:
@@ -150,23 +177,22 @@ def annotate_batch(ids, status, note=None, annotator=None, level=None):
 
     updated = []
     for record in records:
-        annotate_silent = {
-            "status": status if status is not None else record.status,
-            "level": level if level is not None else record.level,
-            "note": note,
-            "annotator": annotator,
-        }
-        if annotate_silent["status"] != "pending" and not (note or "").strip():
+        target_status = status if status is not None else record.status
+        if target_status not in STATUS_CHOICES:
+            raise ValidationError(
+                "标注状态取值不合法, 可选: %s" % ", ".join(STATUS_CHOICES),
+                fields={"status": "unknown"},
+            )
+        if target_status != "pending" and not (note or "").strip():
             raise ValidationError(
                 "批量标注为\"%s\"时必须填写标注说明"
-                % EXCEEDANCE_STATUS_LABELS.get(annotate_silent["status"], annotate_silent["status"]),
+                % EXCEEDANCE_STATUS_LABELS.get(target_status, target_status),
                 fields={"note": "required"},
             )
-        record.status = annotate_silent["status"]
-        record.level = annotate_silent["level"]
+        record.status = target_status
         if (note or "").strip():
             record.note = note.strip()
-        if annotate_silent["status"] == "pending":
+        if target_status == "pending":
             record.annotated_at = None
         else:
             record.annotator = annotator or record.annotator or "未署名"

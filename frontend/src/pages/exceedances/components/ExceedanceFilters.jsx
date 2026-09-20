@@ -15,6 +15,22 @@ const LEVEL_OPTIONS = [
   { value: 'severe', label: '重度超标' }
 ]
 
+const CORRECTED_OPTIONS = [
+  { value: 'true', label: '仅看已人工修正' },
+  { value: 'false', label: '仅看系统判定' }
+]
+
+const EMPTY = {
+  status: '',
+  level: '',
+  level_corrected: '',
+  pollutant: '',
+  station_id: '',
+  date_from: '',
+  date_to: '',
+  keyword: ''
+}
+
 export default function ExceedanceFilters({ value, loading, onSubmit, onReset }) {
   const [draft, setDraft] = useState(value)
   const { data: stationData } = useStationOptions()
@@ -31,15 +47,23 @@ export default function ExceedanceFilters({ value, loading, onSubmit, onReset })
       loading={loading}
       onSearch={() => onSubmit(draft)}
       onReset={() => {
-        setDraft({ status: '', level: '', pollutant: '', station_id: '', date_from: '', date_to: '', keyword: '' })
+        setDraft(EMPTY)
         onReset()
       }}
     >
       <Field label="标注状态">
         <Select value={draft.status || ''} onChange={update('status')} placeholder="全部状态" options={STATUS_OPTIONS} />
       </Field>
-      <Field label="超标等级">
+      <Field label="超标等级 (生效)">
         <Select value={draft.level || ''} onChange={update('level')} placeholder="全部等级" options={LEVEL_OPTIONS} />
+      </Field>
+      <Field label="修正情况">
+        <Select
+          value={draft.level_corrected || ''}
+          onChange={update('level_corrected')}
+          placeholder="全部记录"
+          options={CORRECTED_OPTIONS}
+        />
       </Field>
       <Field label="监测点">
         <Select

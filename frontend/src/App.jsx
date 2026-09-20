@@ -5,6 +5,7 @@ import OverviewPage from './pages/overview/OverviewPage.jsx'
 import StationsPage from './pages/stations/StationsPage.jsx'
 import MeasurementsPage from './pages/measurements/MeasurementsPage.jsx'
 import ExceedancesPage from './pages/exceedances/ExceedancesPage.jsx'
+import CorrectionsPage from './pages/corrections/CorrectionsPage.jsx'
 import QueryPage from './pages/query/QueryPage.jsx'
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
             <Route path="/stations" element={<StationsPage />} />
             <Route path="/measurements" element={<MeasurementsPage />} />
             <Route path="/exceedances" element={<ExceedancesPage />} />
+            <Route path="/corrections" element={<CorrectionsPage />} />
             <Route path="/query" element={<QueryPage />} />
             <Route path="*" element={<Navigate to="/overview" replace />} />
           </Routes>

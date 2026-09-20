@@ -46,7 +46,6 @@ def test_single_annotation_persists_note_and_annotator(client, station, entry_pa
         "/api/exceedances/%d" % exceedance_id,
         json={
             "status": "confirmed",
-            "level": "severe",
             "note": "复核确认超标, 已通知现场核查",
             "annotator": "王敏",
         },
@@ -55,10 +54,12 @@ def test_single_annotation_persists_note_and_annotator(client, station, entry_pa
     body = response.get_json()
     assert body["status"] == "confirmed"
     assert body["status_label"] == "已确认"
-    assert body["level"] == "severe"
     assert body["note"] == "复核确认超标, 已通知现场核查"
     assert body["annotator"] == "王敏"
     assert body["annotated_at"] is not None
+    assert body["level_corrected"] is False
+    assert body["original_level"] == body["level"]
+    assert body["level_corrections"] == []
 
 
 def test_batch_annotation_updates_selected_records(client, station, entry_payload):

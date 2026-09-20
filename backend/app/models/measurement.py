@@ -65,6 +65,10 @@ class Measurement(TimestampMixin, db.Model):
             "updated_at": iso(self.updated_at),
             "exceedance_id": self.exceedance.id if self.exceedance else None,
             "exceedance_status": self.exceedance.status if self.exceedance else None,
+            "exceedance_level": self.exceedance.level if self.exceedance else None,
+            "exceedance_level_corrected": (
+                bool(self.exceedance.level_corrected) if self.exceedance else False
+            ),
         }
         if include_station and self.station:
             payload["station"] = {

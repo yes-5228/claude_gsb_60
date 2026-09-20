@@ -1,7 +1,12 @@
 """数据查询 API: 条件检索 / 聚合统计 / 导出."""
 from flask import Blueprint, current_app, request
 
-from ..domain.constants import DATA_SOURCE_LABELS, PERIOD_LABELS, STATION_TYPE_LABELS
+from ..domain.constants import (
+    DATA_SOURCE_LABELS,
+    EXCEEDANCE_LEVEL_LABELS,
+    PERIOD_LABELS,
+    STATION_TYPE_LABELS,
+)
 from ..domain.standards import POLLUTANTS
 from ..services import query_service
 from ..utils.pagination import paginate_query
@@ -40,6 +45,8 @@ def query_export():
         ("限值", "limit_value"),
         ("是否超标", lambda row: "是" if row.is_exceeded else "否"),
         ("超标倍数", "exceed_ratio"),
+        ("超标等级", lambda row: EXCEEDANCE_LEVEL_LABELS.get(
+            row.exceedance.level, row.exceedance.level) if row.exceedance else ""),
         ("监测时间", lambda row: row.measured_at.strftime("%Y-%m-%d %H:%M")),
         ("数据来源", lambda row: DATA_SOURCE_LABELS.get(row.data_source, row.data_source)),
         ("录入人", "recorder"),

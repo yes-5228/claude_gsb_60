@@ -144,7 +144,87 @@ def seed_demo_data(days=5, rng=None, recorder_pool=RECORDERS):
             )
         annotated += 1
     totals["annotated"] = annotated
+
+    extra = _seed_cross_month_and_corrections(created_stations[:3], rng, recorder_pool)
+    totals.update(extra)
     return totals
+
+
+def _seed_cross_month_and_corrections(stations, rng, recorder_pool):
+    """造一个已公布的历史月份 + 当月修正样本, 用于演示跨月冻结与留痕追溯。"""
+    from .services import correction_service, measurement_service
+
+    today = date.today()
+    first_of_this_month = today.replace(day=1)
+    prev_day = first_of_this_month - timedelta(days=1)
+
+    # 上个月最后一天给前三个站点补一批数据, 形成历史月份的超标记录
+    for station in stations:
+        entries = [
+            {"pollutant": code, "value": _value(code, "hourly", station.station_type, rng)}
+            for code in HOURLY_FACTOR
+        ]
+        measurement_service.record_entries(
+            station_id=station.id,
+            measured_at=datetime(prev_day.year, prev_day.month, prev_day.day, 9, 0),
+            period="hourly",
+            entries=entries,
+            data_source="device",
+            recorder=rng.choice(recorder_pool),
+            remark="历史月份数据",
+        )
+
+    prev_month = prev_day.strftime("%Y-%m")
+    this_month = today.strftime("%Y-%m")
+    correction_service.publish_month(prev_month, "管理员", "上月超标台账已按流程对外公布")
+
+    # 当月挑选超标记录做修正: 其中一条反复修正两次, 验证变化链可追溯
+    this_month_records = [
+        row for row in Exceedance.query.order_by(Exceedance.id.asc()).all()
+        if row.measured_at.strftime("%Y-%m") == this_month
+    ]
+    corrected = 0
+    if this_month_records:
+        target = this_month_records[0]
+        chain = [lvl for lvl in ("light", "moderate", "severe") if lvl != target.level]
+        if chain:
+            correction_service.correct_level(
+                target, chain[0],
+                "现场比对周边监测点, 该时段污染持续时间更长, 上调等级",
+                "王敏",
+            )
+            corrected += 1
+        if len(chain) > 1:
+            correction_service.correct_level(
+                target, chain[1],
+                "再次复核排放源持续排放证据, 维持重度判定",
+                "王敏",
+            )
+            corrected += 1
+    if len(this_month_records) > 1:
+        target = this_month_records[1]
+        lower = {"severe": "moderate", "moderate": "light"}.get(target.level)
+        if lower:
+            correction_service.correct_level(
+                target, lower,
+                "经核实为设备零点漂移导致的瞬时尖峰, 下调等级",
+                "李静",
+            )
+            corrected += 1
+
+    # 批量修正一条, 演示批次号留痕 (选一个当前不是重度的记录确保修正成立)
+    batch_target = next(
+        (row for row in this_month_records[2:] if row.level != "severe"),
+        None,
+    )
+    if batch_target is not None:
+        correction_service.correct_level_batch(
+            [{"id": batch_target.id, "level": "severe"}],
+            operator="管理员",
+            reason="月末集中复核: 结合周边污染源投诉记录上调",
+        )
+        corrected += 1
+    return {"published_month": prev_month, "corrections": corrected}
 
 
 def reset_database():
