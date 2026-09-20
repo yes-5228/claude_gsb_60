@@ -158,7 +158,11 @@ def record_entries(station_id, measured_at, period, entries, data_source="manual
 
 
 def _sync_exceedance(record, meta, evaluation):
-    """Create / refresh / drop the exceedance row attached to a measurement."""
+    """Create / refresh / drop the exceedance row attached to a measurement.
+
+    自动重算只刷新 auto_level; 若等级已被人工修正 (level_source=manual),
+    当前生效 level 保持人工值, 避免数据覆盖录入冲掉修正结论。
+    """
     if evaluation["exceeded"]:
         if record.exceedance is None:
             record.exceedance = Exceedance(
@@ -170,13 +174,17 @@ def _sync_exceedance(record, meta, evaluation):
                 limit_value=evaluation["limit"],
                 exceed_ratio=evaluation["ratio"],
                 level=evaluation["level"],
+                auto_level=evaluation["level"],
+                level_source="auto",
                 status="pending",
             )
         else:
             record.exceedance.value = record.value
             record.exceedance.limit_value = evaluation["limit"]
             record.exceedance.exceed_ratio = evaluation["ratio"]
-            record.exceedance.level = evaluation["level"]
+            record.exceedance.auto_level = evaluation["level"]
+            if record.exceedance.level_source != "manual":
+                record.exceedance.level = evaluation["level"]
             record.exceedance.measured_at = record.measured_at
     elif record.exceedance is not None:
         db.session.delete(record.exceedance)

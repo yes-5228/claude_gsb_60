@@ -15,11 +15,11 @@ const STATUS_CHOICES = [
   { value: 'pending', label: '保持待标注', hint: '暂不处理, 保留在待办列表' }
 ]
 
-export default function AnnotationModal({ exceedanceId, onClose, onSaved }) {
+export default function AnnotationModal({ exceedanceId, onClose, onSaved, onCorrect }) {
   const toast = useToast()
   const loader = useCallback(() => getExceedance(exceedanceId), [exceedanceId])
   const { data, loading, error } = useAsyncData(loader, { immediate: Boolean(exceedanceId) })
-  const [form, setForm] = useState({ status: 'confirmed', level: '', note: '', annotator: '' })
+  const [form, setForm] = useState({ status: 'confirmed', note: '', annotator: '' })
   const [errors, setErrors] = useState({})
   const [message, setMessage] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -28,7 +28,6 @@ export default function AnnotationModal({ exceedanceId, onClose, onSaved }) {
     if (!data) return
     setForm({
       status: data.status,
-      level: data.level,
       note: data.note || '',
       annotator: data.annotator || ''
     })
@@ -42,7 +41,6 @@ export default function AnnotationModal({ exceedanceId, onClose, onSaved }) {
     try {
       await annotateExceedance(exceedanceId, {
         status: form.status,
-        level: form.level || null,
         note: form.note || null,
         annotator: form.annotator || null
       })
@@ -91,12 +89,14 @@ export default function AnnotationModal({ exceedanceId, onClose, onSaved }) {
               <div className="stat-value">{formatRatio(data.exceed_ratio)}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-label">当前状态</div>
+              <div className="stat-label">当前状态 / 生效等级</div>
               <div style={{ marginTop: 8 }}>
-                <Tag tone={EXCEEDANCE_STATUS_TONE[data.status]}>{data.status_label}</Tag>
-              </div>
-              <div className="stat-foot">
+                <Tag tone={EXCEEDANCE_STATUS_TONE[data.status]}>{data.status_label}</Tag>{' '}
                 <Tag tone={EXCEEDANCE_LEVEL_TONE[data.level]}>{data.level_label}</Tag>
+                {data.level_corrected ? <Tag tone="primary">人工修正</Tag> : null}
+              </div>
+              <div className="stat-foot small muted">
+                系统判定: {data.auto_level_label} · 等级修正请点击右下角“修正等级”
               </div>
             </div>
           </div>
@@ -141,26 +141,13 @@ export default function AnnotationModal({ exceedanceId, onClose, onSaved }) {
             </div>
           </Field>
 
-          <div className="form-grid">
-            <Field label="超标等级 (可人工修正)" error={errors.level}>
-              <select
-                className="select"
-                value={form.level || ''}
-                onChange={(event) => setForm({ ...form, level: event.target.value })}
-              >
-                <option value="light">轻度超标</option>
-                <option value="moderate">中度超标</option>
-                <option value="severe">重度超标</option>
-              </select>
-            </Field>
-            <Field label="标注人" error={errors.annotator}>
-              <Input
-                value={form.annotator}
-                onChange={(event) => setForm({ ...form, annotator: event.target.value })}
-                placeholder="如: 王敏"
-              />
-            </Field>
-          </div>
+          <Field label="标注人" error={errors.annotator}>
+            <Input
+              value={form.annotator}
+              onChange={(event) => setForm({ ...form, annotator: event.target.value })}
+              placeholder="如: 王敏"
+            />
+          </Field>
 
           <Field
             label="标注说明"
@@ -175,6 +162,16 @@ export default function AnnotationModal({ exceedanceId, onClose, onSaved }) {
               placeholder="如: 数据经复核属实, 已通知运维排查周边排放源"
             />
           </Field>
+
+          <div className="inline" style={{ justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => onCorrect?.(data)}
+            >
+              需要调整等级? 去修正等级 →
+            </button>
+          </div>
         </div>
       ) : null}
     </Modal>

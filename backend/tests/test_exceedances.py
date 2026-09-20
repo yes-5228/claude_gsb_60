@@ -46,7 +46,6 @@ def test_single_annotation_persists_note_and_annotator(client, station, entry_pa
         "/api/exceedances/%d" % exceedance_id,
         json={
             "status": "confirmed",
-            "level": "severe",
             "note": "复核确认超标, 已通知现场核查",
             "annotator": "王敏",
         },
@@ -55,10 +54,24 @@ def test_single_annotation_persists_note_and_annotator(client, station, entry_pa
     body = response.get_json()
     assert body["status"] == "confirmed"
     assert body["status_label"] == "已确认"
-    assert body["level"] == "severe"
     assert body["note"] == "复核确认超标, 已通知现场核查"
     assert body["annotator"] == "王敏"
     assert body["annotated_at"] is not None
+
+
+def test_level_change_is_rejected_on_annotation_endpoint(client, station, entry_payload):
+    """等级修改必须走专用修正接口, 标注接口不再接受 level。"""
+    _make_exceedances(client, station, entry_payload)
+    exceedance_id = Exceedance.query.order_by(Exceedance.id.asc()).first().id
+
+    response = client.patch(
+        "/api/exceedances/%d" % exceedance_id,
+        json={"status": "confirmed", "level": "severe", "note": "x", "annotator": "王敏"},
+    )
+    assert response.status_code == 422
+    assert response.get_json()["error"]["fields"]["level"] == "use_correction_endpoint"
+    # 整次请求失败, 状态也不应被改动
+    assert Exceedance.query.get(exceedance_id).status == "pending"
 
 
 def test_batch_annotation_updates_selected_records(client, station, entry_payload):

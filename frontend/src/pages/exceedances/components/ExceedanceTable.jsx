@@ -9,7 +9,8 @@ export default function ExceedanceTable({
   selectedIds,
   onToggleRow,
   onToggleAll,
-  onOpen
+  onOpen,
+  onCorrect
 }) {
   const columns = [
     { key: 'measured_at', title: '监测时间', className: 'cell-nowrap', render: (row) => formatDateTime(row.measured_at) },
@@ -46,7 +47,12 @@ export default function ExceedanceTable({
     {
       key: 'level',
       title: '等级',
-      render: (row) => <Tag tone={EXCEEDANCE_LEVEL_TONE[row.level]}>{row.level_label}</Tag>
+      render: (row) => (
+        <div className="stack" style={{ gap: 4 }}>
+          <Tag tone={EXCEEDANCE_LEVEL_TONE[row.level]}>{row.level_label}</Tag>
+          {row.level_corrected ? <Tag tone="primary">人工修正</Tag> : null}
+        </div>
+      )
     },
     {
       key: 'status',
@@ -72,9 +78,14 @@ export default function ExceedanceTable({
       title: '操作',
       align: 'right',
       render: (row) => (
-        <button type="button" className="btn btn-sm btn-primary" onClick={() => onOpen(row)}>
-          标注
-        </button>
+        <div className="inline">
+          <button type="button" className="btn btn-sm" onClick={() => onOpen(row)}>
+            标注
+          </button>
+          <button type="button" className="btn btn-sm btn-primary" onClick={() => onCorrect(row)}>
+            修正等级
+          </button>
+        </div>
       )
     }
   ]

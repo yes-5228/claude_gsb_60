@@ -144,6 +144,24 @@ def seed_demo_data(days=5, rng=None, recorder_pool=RECORDERS):
             )
         annotated += 1
     totals["annotated"] = annotated
+
+    # 演示一条跨月等级修正留痕: 取最早月份的一条轻度超标上调为中度,
+    # 让工作台同时出现“人工修正”标记与可追溯的修正理由
+    from .services import level_correction_service
+
+    oldest = (
+        Exceedance.query.filter(Exceedance.level == "light")
+        .order_by(Exceedance.measured_at.asc())
+        .first()
+    )
+    if oldest is not None:
+        level_correction_service.correct_level(
+            oldest,
+            to_level="moderate",
+            reason="演示数据: 经现场复核周边排放源持续影响, 由轻度上调为中度",
+            operator="王敏",
+        )
+        totals["level_corrections"] = 1
     return totals
 
 
@@ -161,7 +179,9 @@ def ensure_bootstrap(app):
     with app.app_context():
         try:
             if auto_init:
-                db.create_all()
+                from .utils.schema import ensure_schema
+
+                ensure_schema(app)
             if auto_seed and db.session.query(Station.id).first() is None:
                 app.logger.info("seeding demo data ...")
                 seed_demo_data()

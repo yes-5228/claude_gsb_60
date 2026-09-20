@@ -10,7 +10,6 @@ from ..models import Exceedance, Measurement, Station
 from ..models.base import iso
 
 STATUS_CHOICES = tuple(EXCEEDANCE_STATUS_LABELS.keys())
-LEVEL_CHOICES = tuple(EXCEEDANCE_LEVEL_LABELS.keys())
 
 
 def _split(value):
@@ -101,8 +100,11 @@ def exceedance_query(args):
     return query.order_by(primary, Exceedance.id.desc())
 
 
-def annotate(exceedance, status=None, note=None, annotator=None, level=None):
-    """Apply a manual annotation to an exceedance record."""
+def annotate(exceedance, status=None, note=None, annotator=None):
+    """Apply a manual annotation (confirm / ignore / reset) to an exceedance.
+
+    等级修正不经过这里, 由 level_correction_service 单独留痕。
+    """
     if status is not None:
         if status not in STATUS_CHOICES:
             raise ValidationError(
@@ -110,13 +112,6 @@ def annotate(exceedance, status=None, note=None, annotator=None, level=None):
                 fields={"status": "unknown"},
             )
         exceedance.status = status
-    if level is not None:
-        if level not in LEVEL_CHOICES:
-            raise ValidationError(
-                "超标等级取值不合法, 可选: %s" % ", ".join(LEVEL_CHOICES),
-                fields={"level": "unknown"},
-            )
-        exceedance.level = level
 
     note = (note or "").strip()
     if exceedance.status == "pending":
@@ -138,11 +133,22 @@ def annotate(exceedance, status=None, note=None, annotator=None, level=None):
     return exceedance
 
 
-def annotate_batch(ids, status, note=None, annotator=None, level=None):
-    """Batch annotation used by the exceedance work bench."""
+def annotate_batch(ids, status, note=None, annotator=None):
+    """Batch annotation (confirm / ignore / reset) used by the work bench."""
     ids = list(dict.fromkeys(int(item) for item in ids))
     if not ids:
         raise ValidationError("请至少选择一条超标记录", fields={"ids": "empty"})
+    if status not in STATUS_CHOICES:
+        raise ValidationError(
+            "标注状态取值不合法, 可选: %s" % ", ".join(STATUS_CHOICES),
+            fields={"status": "unknown"},
+        )
+    note = (note or "").strip()
+    if status != "pending" and not note:
+        raise ValidationError(
+            "批量标注为\"%s\"时必须填写标注说明" % EXCEEDANCE_STATUS_LABELS[status],
+            fields={"note": "required"},
+        )
 
     records = Exceedance.query.filter(Exceedance.id.in_(ids)).all()
     found = {record.id for record in records}
@@ -150,23 +156,10 @@ def annotate_batch(ids, status, note=None, annotator=None, level=None):
 
     updated = []
     for record in records:
-        annotate_silent = {
-            "status": status if status is not None else record.status,
-            "level": level if level is not None else record.level,
-            "note": note,
-            "annotator": annotator,
-        }
-        if annotate_silent["status"] != "pending" and not (note or "").strip():
-            raise ValidationError(
-                "批量标注为\"%s\"时必须填写标注说明"
-                % EXCEEDANCE_STATUS_LABELS.get(annotate_silent["status"], annotate_silent["status"]),
-                fields={"note": "required"},
-            )
-        record.status = annotate_silent["status"]
-        record.level = annotate_silent["level"]
-        if (note or "").strip():
-            record.note = note.strip()
-        if annotate_silent["status"] == "pending":
+        record.status = status
+        if note:
+            record.note = note
+        if status == "pending":
             record.annotated_at = None
         else:
             record.annotator = annotator or record.annotator or "未署名"
